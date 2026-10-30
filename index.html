@@ -791,13 +791,18 @@
         }
     }
 
-    function shootMonster() {
-        if (monsters.length === 0) return;
-
+    function getClosestTarget() {
+        if (monsters.length === 0) return null;
         let target = monsters[0];
         for (let m of monsters) {
-            if (m.y > target.y) target = m;
+            if (m.y > target.y) target = m; // 找最接近底部的怪物
         }
+        return target;
+    }
+
+    function shootMonster() {
+        const target = getClosestTarget();
+        if (!target) return;
 
         bullets.push({
             x: canvas.width / 2,
@@ -842,18 +847,33 @@
         ctx.fillRect(0, wallY, canvas.width, 12);
         
         // 畫砲台基座
+        const cannonX = canvas.width / 2;
+        const cannonY = wallY;
+        
         ctx.fillStyle = "#38bdf8";
         ctx.beginPath();
-        ctx.arc(canvas.width / 2, wallY, 18, Math.PI, 0);
+        ctx.arc(cannonX, cannonY, 18, Math.PI, 0);
         ctx.fill();
 
-        // 畫砲台 Font Awesome 圖示 (日曆 icon)
+        // 計算砲台對準最近怪物的角度
+        let angle = 0; // 預設向上 (0度)
+        const targetMonster = getClosestTarget();
+        if (targetMonster) {
+            const dx = targetMonster.x - cannonX;
+            const dy = targetMonster.y - cannonY;
+            // atan2 0 度朝向 X 軸正方向，旋轉角計算調整（往上為 -90 度）
+            angle = Math.atan2(dy, dx) + Math.PI / 2;
+        }
+
+        // 畫砲台 Font Awesome 圖示 (旋轉方向)
         ctx.save();
+        ctx.translate(cannonX, cannonY - 8); // 將原點移至砲台中心
+        ctx.rotate(angle);                    // 依目標角度旋轉
         ctx.font = ICON_CONFIG.cannon.font;
         ctx.fillStyle = "#ffffff";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillText(ICON_CONFIG.cannon.code, canvas.width / 2, wallY - 8);
+        ctx.fillText(ICON_CONFIG.cannon.code, 0, 0);
         ctx.restore();
 
         // 繪製與更新怪物
