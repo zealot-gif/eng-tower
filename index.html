@@ -741,12 +741,25 @@
             container.innerHTML = `<p style="text-align: center; color: #94a3b8; font-size: 14px;">尚無錯題紀錄，做得好！🎉</p>`;
         } else {
             wrongQuestions.forEach((q, idx) => {
+                // 輔助函式：根據選項代號取得選項內容文字
+                const getOptionText = (letter) => {
+                    const l = (letter || "").toString().trim().toUpperCase();
+                    if (l === 'A') return q.optionA || '';
+                    if (l === 'B') return q.optionB || '';
+                    if (l === 'C') return q.optionC || '';
+                    if (l === 'D') return q.optionD || '';
+                    return letter; // 如果本身就是文字內容則直接傳回
+                };
+
+                const userText = getOptionText(q.userChoice);
+                const correctText = getOptionText(q.answer);
+
                 const item = document.createElement("div");
                 item.className = "wrong-item";
                 item.innerHTML = `
                     <div class="wrong-q">${idx + 1}. [${q.category || '綜合'}] ${q.question}</div>
-                    <div>你的選擇：<span class="wrong-user">${q.userChoice}</span></div>
-                    <div>正確答案：<span class="wrong-ans">${q.answer}</span></div>
+                    <div>你的選擇：<span class="wrong-user">${q.userChoice}. ${userText}</span></div>
+                    <div>正確答案：<span class="wrong-ans">${q.answer}. ${correctText}</span></div>
                 `;
                 container.appendChild(item);
             });
