@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GRE & 學士後英文 - 塔防單字大作戰</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; background: #1a1a2e; color: #fff; display: flex; flex-direction: column; align-items: center; min-height: 100vh; padding: 20px; }
+    h1 { margin-bottom: 15px; color: #e94560; }
+    
+    #setup-panel { background: #16213e; padding: 20px; border-radius: 8px; margin-bottom: 20px; display: flex; gap: 15px; align-items: center; }
+    select, button { padding: 10px 15px; font-size: 16px; border-radius: 5px; border: none; cursor: pointer; }
+    select { background: #0f3460; color: #fff; }
+    button { background: #e94560; color: #fff; font-weight: bold; transition: 0.2s; }
+    button:hover { background: #ff6b81; }
+    
+    #game-container { position: relative; display: flex; gap: 20px; }
+    canvas { background: #222831; border: 2px solid #0f3460; border-radius: 8px; }
+    
+    #ui-panel { width: 300px; background: #16213e; padding: 20px; border-radius: 8px; display: flex; flex-direction: column; gap: 15px; }
+    .stat-box { background: #0f3460; padding: 10px; border-radius: 5px; font-size: 18px; }
+    
+    /* 彈出問答視窗 */
+    #quiz-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: none; justify-content: center; align-items: center; z-index: 100; }
+    .quiz-content { background: #16213e; padding: 30px; border-radius: 10px; max-width: 500px; width: 90%; text-align: center; border: 2px solid #e94560; }
+    .quiz-options { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px; }
+    .option-btn { background: #0f3460; color: white; padding: 12px; border-radius: 5px; border: 1px solid #e94560; font-size: 16px; }
+    .option-btn:hover { background: #e94560; }
+  </style>
+</head>
+<body>
+
+  <h1>GRE / 學士後 英文塔防大作戰</h1>
+
+  <div id="setup-panel">
+    <label for="category-select">選擇挑戰主題：</label>
+    <select id="category-select">
+      <option value="全部">全選（混合題目）</option>
+      <option value="字根字首">1. 字根字首類</option>
+      <option value="介係詞">2. 介係詞類</option>
+      <option value="慣用語">3. 慣用語類</option>
+      <option value="片語">4. 片語類</option>
+    </select>
+    <button id="start-btn">開始遊戲 / 載入題目</button>
+  </div>
+
+  <div id="game-container">
+    <canvas id="gameCanvas" width="600" height="400"></canvas>
+    <div id="ui-panel">
+      <div class="stat-box">金幣: <span id="gold-val">100</span></div>
+      <div class="stat-box">生命值: <span id="hp-val">10</span></div>
+      <div class="stat-box">波次: <span id="wave-val">1</span></div>
+      <button id="answer-quiz-btn">答題賺取金幣 (+50)</button>
+      <button id="build-tower-btn">建造防禦塔 (花費 50 金幣)</button>
+    </div>
+  </div>
+
+  <!-- 問答視窗 -->
+  <div id="quiz-modal">
+    <div class="quiz-content">
+      <h3 id="quiz-category" style="color:#e94560; margin-bottom:10px;">分類</h3>
+      <p id="quiz-question" style="font-size: 18px; margin-bottom: 20px;">題目載入中...</p>
+      <div class="quiz-options" id="quiz-options"></div>
+    </div>
+  </div>
+
+  <script>
+    // 填入你的 Google Apps Script Web App URL
+    const GAS_API_URL = "YOUR_GOOGLE_APPS_SCRIPT_URL_HERE";
+
+    let rawQuestions = [];
+    let filteredQuestions = [];
+    let currentQuestion = null;
+
+    // 遊戲狀態 Variables
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    let gold = 100;
+    let hp = 10;
+    let wave = 1;
+    let towers = [];
+    let enemies = [];
+    let bullets = [];
+    let gameLoopId = null;
+
+    // 簡單路徑 (起點 -> 轉折點 -> 終點)
+    const path = [
+      {x: 0, y: 200},
+      {x: 250, y: 200},
+      {x: 250, y: 80},
+      {x: 450, y: 80},
+      {x: 450, y: 320},
+      {x: 600, y: 320}
+    ];
+
+    // 初始化與讀取資料
+    document.getElementById('start-btn').addEventListener('click', async () => {
+      if (GAS_API_URL === "YOUR_GOOGLE_APPS_SCRIPT_URL_HERE") {
+        alert("請先在程式碼中設定正確的 GAS_API_URL！");
+        return;
+      }
+      
+      document.getElementById('start-btn').innerText = "載入中...";
+      try {
+        const res = await fetch(GAS_API_URL);
+        rawQuestions = await res.json();
+        filterQuestions();
+        initGame();
+        document.getElementById('start-btn').innerText = "重新開始";
+      } catch (err) {
+        alert("題目載入失敗，請檢查 API 網址與網路連線。");
+        console.error(err);
+      }
+    });
+
+    function filterQuestions() {
+      const cat = document.getElementById('category-select').value;
+      if (cat === "全部") {
+        filteredQuestions = [...rawQuestions];
+      } else {
+        filteredQuestions = rawQuestions.filter(q => q.category === cat);
+      }
+    }
+
+    function initGame() {
+      gold = 100;
+      hp = 10;
+      wave = 1;
+      towers = [];
+      enemies = [];
+      bullets = [];
+      updateUI();
+      
+      if (gameLoopId) cancelAnimationFrame(gameLoopId);
+      spawnEnemyWave();
+      gameLoop();
+    }
+
+    function updateUI() {
+      document.getElementById('gold-val').innerText = gold;
+      document.getElementById('hp-val').innerText = hp;
+      document.getElementById('wave-val').innerText = wave;
+    }
+
+    // 建造塔 (預設放置在固定示範位置)
+    document.getElementById('build-tower-btn').addEventListener('click', () => {
+      if (gold >= 50) {
+        gold -= 50;
+        updateUI();
+        // 隨機在路徑附近新增塔
+        towers.push({
+          x: 100 + Math.random() * 350,
+          y: 50 + Math.random() * 250,
+          range: 100,
+          cooldown: 0
+        });
+      } else {
+        alert("金幣不足！請透過答題賺取金幣。");
+      }
+    });
+
+    // 彈出答題視窗
+    document.getElementById('answer-quiz-btn').addEventListener('click', showQuiz);
+
+    function showQuiz() {
+      if (filteredQuestions.length === 0) {
+        alert("該分類下沒有可用題目！");
+        return;
+      }
+      currentQuestion = filteredQuestions[Math.floor(Math.random() * filteredQuestions.length)];
+      
+      document.getElementById('quiz-category').innerText = `[${currentQuestion.category}]`;
+      document.getElementById('quiz-question').innerText = currentQuestion.question;
+      
+      const optionsContainer = document.getElementById('quiz-options');
+      optionsContainer.innerHTML = '';
+      
+      const optionKeys = ['A', 'B', 'C', 'D'];
+      currentQuestion.options.forEach((optText, idx) => {
+        const btn = document.createElement('button');
+        btn.className = 'option-btn';
+        btn.innerText = `${optionKeys[idx]}. ${optText}`;
+        btn.onclick = () => checkAnswer(optionKeys[idx]);
+        optionsContainer.appendChild(btn);
+      });
+
+      document.getElementById('quiz-modal').style.display = 'flex';
+    }
+
+    function checkAnswer(selectedOption) {
+      document.getElementById('quiz-modal').style.display = 'none';
+      if (selectedOption === currentQuestion.answer.trim().toUpperCase()) {
+        alert("回答正確！獲得 50 金幣");
+        gold += 50;
+      } else {
+        alert(`回答錯誤！正確答案是 (${currentQuestion.answer})`);
+      }
+      updateUI();
+    }
+
+    // 生成怪物
+    function spawnEnemyWave() {
+      for (let i = 0; i < 5 + wave * 2; i++) {
+        setTimeout(() => {
+          enemies.push({
+            x: path[0].x,
+            y: path[0].y,
+            pathIndex: 0,
+            hp: 30 + wave * 10,
+            maxHp: 30 + wave * 10,
+            speed: 1 + Math.random() * 0.5
+          });
+        }, i * 1500);
+      }
+    }
+
+    // 主遊戲迴圈
+    function gameLoop() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // 1. 繪製路徑
+      ctx.beginPath();
+      ctx.strokeStyle = '#393e46';
+      ctx.lineWidth = 30;
+      ctx.moveTo(path[0].x, path[0].y);
+      for (let i = 1; i < path.length; i++) {
+        ctx.lineTo(path[i].x, path[i].y);
+      }
+      ctx.stroke();
+
+      // 2. 更新與繪製怪物
+      for (let i = enemies.length - 1; i >= 0; i--) {
+        let e = enemies[i];
+        let target = path[e.pathIndex + 1];
+        
+        if (target) {
+          let dx = target.x - e.x;
+          let dy = target.y - e.y;
+          let dist = Math.hypot(dx, dy);
+          
+          if (dist < e.speed) {
+            e.pathIndex++;
+          } else {
+            e.x += (dx / dist) * e.speed;
+            e.y += (dy / dist) * e.speed;
+          }
+        } else {
+          // 抵達終點
+          hp--;
+          enemies.splice(i, 1);
+          updateUI();
+          if (hp <= 0) {
+            alert("遊戲結束！");
+            initGame();
+            return;
+          }
+          continue;
+        }
+
+        // 畫怪物
+        ctx.fillStyle = '#e94560';
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, 10, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // 3. 防禦塔邏輯與攻擊
+      towers.forEach(t => {
+        // 畫塔
+        ctx.fillStyle = '#00adb5';
+        ctx.beginPath();
+        ctx.arc(t.x, t.y, 15, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 找尋範圍內的怪物
+        if (t.cooldown <= 0) {
+          let target = enemies.find(e => Math.hypot(e.x - t.x, e.y - t.y) < t.range);
+          if (target) {
+            bullets.push({ x: t.x, y: t.y, target: target, speed: 5 });
+            t.cooldown = 30; // 射擊冷卻
+          }
+        } else {
+          t.cooldown--;
+        }
+      });
+
+      // 4. 子彈邏輯
+      for (let i = bullets.length - 1; i >= 0; i--) {
+        let b = bullets[i];
+        if (!enemies.includes(b.target)) {
+          bullets.splice(i, 1);
+          continue;
+        }
+
+        let dx = b.target.x - b.x;
+        let dy = b.target.y - b.y;
+        let dist = Math.hypot(dx, dy);
+
+        if (dist < 5) {
+          b.target.hp -= 15;
+          if (b.target.hp <= 0) {
+            let idx = enemies.indexOf(b.target);
+            if (idx > -1) {
+              enemies.splice(idx, 1);
+              gold += 10;
+              updateUI();
+            }
+          }
+          bullets.splice(i, 1);
+        } else {
+          b.x += (dx / dist) * b.speed;
+          b.y += (dy / dist) * b.speed;
+          
+          ctx.fillStyle = '#fbe8a6';
+          ctx.beginPath();
+          ctx.arc(b.x, b.y, 4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      // 波次檢測
+      if (enemies.length === 0) {
+        wave++;
+        updateUI();
+        spawnEnemyWave();
+      }
+
+      gameLoopId = requestAnimationFrame(gameLoop);
+    }
+  </script>
+</body>
+</html>
